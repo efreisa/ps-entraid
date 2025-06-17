@@ -21,12 +21,15 @@ function Ensure-EntraIDGroupExists {
     if ($existingGroup) {
         #Write-Output "Group '$GroupName' already exists. ID: $($existingGroup.Id)"
         return $existingGroup.Id
-    } else {
+    }
+    else {
         # Create the group
         $newGroup = New-MgGroup -DisplayName $GroupName `
-                                -MailEnabled:$false `
-                                -SecurityEnabled:$true `
-                                -GroupTypes @()
+            -MailEnabled:$false `
+            -SecurityEnabled:$true `
+            -MailNickname $GroupName `
+            -Description "Group for $GroupName license assignments" `
+            -GroupTypes @()
 
         #Write-Output "Group '$GroupName' created. ID: $($newGroup.Id)"
         return $newGroup.Id
@@ -69,9 +72,10 @@ function Ensure-LicenseAssignedToGroupBySkuName {
 
     if ($alreadyAssigned) {
         #Write-Output "License '$SkuName' already assigned to group $GroupId."
-    } else {
+    }
+    else {
         $params = @{
-            AddLicenses = @(@{ SkuId = $skuId })
+            AddLicenses    = @(@{ SkuId = $skuId })
             RemoveLicenses = @()
         }
 
@@ -90,12 +94,8 @@ Connect-MgGraph -Scopes "Group.ReadWrite.All", "Directory.ReadWrite.All"
 # Groups to create
 $GroupLicenseMap = @(
     @{
-        GroupName = "GP_M365_E3_Users"
-        SkuNames  = @("ENTERPRISEPACK", "Microsoft_Teams_Enterprise_New")  # Microsoft 365 E3
-    },
-    @{
-        GroupName = "GP_M365_Business_Premium"
-        SkuNames  = @("M365_BUSINESS_PREMIUM")
+        GroupName = "GP_Teams_Users"
+        SkuNames  = @("Microsoft_Teams_Enterprise_New")  # Teams
     },
     @{
         GroupName = "GP_M365_E5_Users"
@@ -107,12 +107,15 @@ $GroupLicenseMap = @(
 foreach ($entry in $GroupLicenseMap) {
     $group = Get-MgGroup -Filter "displayName eq '$($entry.GroupName)'" -ConsistencyLevel eventual
 
-    if ($group) {
-        foreach ($skuName in $entry.SkuNames) {
-            Ensure-LicenseAssignedToGroupBySkuName -GroupId $group.Id -SkuName $skuName
-        }
-    } else {
-        Write-Warning "Group '$($entry.GroupName)' not found."
+    if (!$group) {
+        $gid = Ensure-EntraIDGroupExists -GroupName $entry.GroupName
+        Write-Warning "Group '$($entry.GroupName)' created."
+    }
+    else {
+        $gid = $group.Id
+    }
+    foreach ($skuName in $entry.SkuNames) {
+        Ensure-LicenseAssignedToGroupBySkuName -GroupId $gid -SkuName $skuName
     }
 }
 
